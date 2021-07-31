@@ -1,9 +1,9 @@
 import { PLACEMENT, UPDATE, DELETIONS } from "./CONST";
-//当前正在工作的分片任务fiber
+//当前正在工作的分片任务fiber 用于funtion组件
 let wipFiber = null;
-//下一个分片任务（浏览器空闲将执行）
+//下一个分片任务（浏览器空闲将执行）//这实际保存的是一个指针，确保下次空闲时间能够获取到上次空闲时间处理到了那里
 let nextUnitOfWork = null;
-// 工作中的fiberRoot
+// 工作中的fiberRoot 最终生成的fiber
 let wipRoot = null;
 // 现在的根节点
 let currentRoot = null;
@@ -60,14 +60,12 @@ function reconcilerChildren(workInProgressFiber, children) {
         effectTag: PLACEMENT,
       };
     }
-
     //之前有现在没有 === 删除
     if (!sameType && oldFiber) {
       oldFiber.effectTag = DELETIONS;
       //将删除的节点放在删除任务队列中
       deletions.push(oldFiber);
     }
-
     if (oldFiber) {
       oldFiber = oldFiber.sibling;
     }
@@ -174,7 +172,6 @@ function updateFragmentComponent(fiber) {
 
 function performUnitOfWork(fiber) {
   const { type } = fiber;
-  console.log("=== fiber ====", type);
   if (typeof type === "function") {
     type.isReactComponent
       ? updateClassComponent(fiber)
@@ -187,6 +184,7 @@ function performUnitOfWork(fiber) {
   }
 
   //深度优先的规则遍历链表 返回下一个分片任务
+  //下面的 .child / .sibling .parent 都是在上面代码中已经设置好的fiber
   if (fiber.child) {
     return fiber.child;
   }
@@ -209,6 +207,7 @@ function workLoop(deadline) {
   // ...等到下一次空闲继续执行上面的流程
   while (nextUnitOfWork && deadline.timeRemaining() > 1) {
     //有下个子任务，并且当前帧还没有结束
+    // nextUnitOfWork
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
   }
 
@@ -216,16 +215,17 @@ function workLoop(deadline) {
   if (!nextUnitOfWork && wipRoot) {
     commitRoot();
   }
-  // 提交
+  // 完成第一轮任务后 继续监听
   requestIdleCallback(workLoop);
 }
 
-// 借助 requestIdleCallback 的思想实现了任务分片
+// 借鉴 requestIdleCallback 的思想实现了任务分片
 requestIdleCallback(workLoop);
 
 function commitRoot() {
   deletions.forEach(commitWorker);
   commitWorker(wipRoot.child);
+  console.log("== 将最终生成的 fiber 进行处理 ==", wipRoot);
   currentRoot = wipRoot;
   wipRoot = null;
 }
@@ -245,10 +245,12 @@ function commitWorker(fiber) {
   if (fiber.effectTag === PLACEMENT && fiber.node !== null) {
     parentNode.appendChild(fiber.node);
   } else if (fiber.effectTag === UPDATE && fiber.node !== null) {
+    //这个情况
     updateNode(fiber.node, fiber.base.props, fiber.props);
   } else if (fiber.effectTag === DELETIONS && fiber.node !== null) {
     commitDeletions(fiber, parentNode);
   }
+  //深度优先进行挂载
   commitWorker(fiber.child);
   commitWorker(fiber.sibling);
 }
@@ -265,26 +267,31 @@ function commitDeletions(fiber, parentNode) {
 }
 
 export function useState(init) {
-  // 新旧状态 第二次进来不能使用init了 base 中存储的是上一次 fiber 的具体状态
-  // 思考下这里 hookIndex 怎么获取到的？想想这个 useState 是在那里执行的就知道了  hookIndex 在其上层调用处的同级作用域中 updateFunctionComponent 时候调用了这个useState
+  // 新旧状态  第二次进来不能使用init了 base 中存储的是上一次 fiber 的具体状态
   const oldHook = wipFiber.base && wipFiber.base.hooks[hookIndex];
+  console.log("== hookIndex ===", hookIndex);
   // 当前的hook 每次调用都是会初始化
   const hook = {
     state: oldHook ? oldHook.state : init,
-    queue: [], //setstate执行的次数
+    queue: [], //setstate执行的次数，可以说成保存传递过来的数据，也是 高密度触发 setState 最终只是执行最后一次的关键 
   };
 
   //拿到state
   const actions = oldHook ? oldHook.queue : [];
 
   actions.forEach((action) => {
-    // 将当前hook的state进行更新
+    // 将当前hook的state进行更新，实际最终获取的是最后一次的值  搜索jsx中的"suprise mother F!!!"
     hook.state = action;
   });
   //拿到 setState 这里的action 只是传递过来的数值
   //这里有问题  setState 重复执行了多次 我怀疑在数据绑定的时候
   /**
    * @param {*} action 传递过来的值
+   * 
+   * // 调用 setState 发生了什么
+   *  1. =》 当前fiber中的 hook.queue 进行更新下一轮渲染需要的初始值
+   *  2. ==》更新定义下一次的单元任务 nextUnitOfWork 触发 requestIdleCallback(workLoop); 此时触发了调和过程
+   *  3. ===》 在下一轮构建fiber的过程中 useState重新被执行  -->   上面actions.forEach(()=>{获取到当轮 调和过程最终的state}) （短时间内触发的state 只执行了最后一次 ）
    */
   const setState = (action) => {
     hook.queue.push(action);
@@ -293,14 +300,11 @@ export function useState(init) {
       props: currentRoot.props,
       base: currentRoot,
     };
-    // 定义下一次的单元任务 实际就是 和初始化的render 差不多 只不过这里的数据已经发生了变化
-    // 一旦调用了这个 statehook 的Set操作 nextUnitOfWork不为空 就开启下一次更新操作
-    // 在下一轮中  actions.forEach(()=>{}) 就执行了上面 push 的任务队列中的函数
     nextUnitOfWork = wipRoot;
     deletions = [];
   };
 
-  //想当前 fiber中添加hook 选项
+  //向当前fiber中添加hook 选项
   wipFiber.hooks.push(hook);
   hookIndex++; //这个index 并不是为了点击事件的时候到 hooks 中寻找
   return [hook.state, setState];

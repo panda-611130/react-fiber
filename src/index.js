@@ -17,7 +17,11 @@ function FunctionComponnet(props) {
       {showButton ? (
         <button
           className="button"
-          onClick={() => setNumber(Math.floor(Math.random() * 100))}
+          onClick={() => {
+            setNumber(Math.floor(Math.random() * 100));
+            setNumber("suprise mother F!!!")
+            setNumber("what a sunny day")
+          }}
         >
           点击改变数字 {number}
         </button>
