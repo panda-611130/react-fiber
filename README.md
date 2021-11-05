@@ -25,11 +25,12 @@ react 优化
 react 18 变动
 - https://blog.csdn.net/yehuozhili/article/details/117912552
 
-
-
 - react-hook 
   - react-hook的使用规则（为什么只能在顶层进行使用）
   - hook api 的具体状态都是存储到了（记录在）对应函数组件形成的fiber节点上: 
     - fiber.memorizedState(hook0)->next(hook1)->next(hook2)->next(hook3)(workInPressHook 尾节点)
-  - 具体的存储结构是个链表！只是通过next指针进行关联，之所以hook只能在最顶层使用是因为我们使用链表进行存储，他们没有名字，我们只能通过顺序区分我们定义过的hook，所以只能在最顶层使用！不能在循环if嵌套中使用hook（因为这样的话 hook 的顺序不具有稳定性）
-  - 
+    - 具体的存储结构是个链表！只是通过next指针进行关联，之所以hook只能在最顶层使用是因为我们使用链表进行存储，他们没有名字，我们只能通过顺序区分我们定义过的hook，所以只能在最顶层使用！不能在循环if嵌套中使用hook（因为这样的话 hook 的顺序不具有稳定性）
+
+
+
+> 

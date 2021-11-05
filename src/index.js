@@ -20,7 +20,7 @@ function FunctionComponnet(props) {
           onClick={() => {
             setNumber(Math.floor(Math.random() * 100));
             setNumber("suprise mother F!!!")
-            setNumber("what a sunny day")
+            setNumber("what a sunny day 我是最后一次调用 -  setNumber 所以你看见了我 ")
           }}
         >
           点击改变数字 {number}

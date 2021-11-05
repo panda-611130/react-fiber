@@ -3,17 +3,16 @@ import { PLACEMENT, UPDATE, DELETIONS } from "./CONST";
 let wipFiber = null;
 //下一个分片任务（浏览器空闲将执行）//这实际保存的是一个指针，确保下次空闲时间能够获取到上次空闲时间处理到了那里
 let nextUnitOfWork = null;
-// 工作中的fiberRoot 最终生成的fiber
+// 工作中的 fiberRoot 最终生成的fiber
 let wipRoot = null;
 // 现在的根节点
 let currentRoot = null;
 // hook 游标
 let hookIndex = null;
-// 存放删除fiber的数组, 最后提交的时候进行统一提交，
+// 存放删除fiber的数组, 最后提交的时候进行统一提交，实际存储的是需要被删除的指针。
 let deletions = null;
 
 function render(vnode, container) {
-  console.log("== render === render ==");
   wipRoot = {
     node: container,
     props: { children: [vnode] },
@@ -29,27 +28,30 @@ function render(vnode, container) {
  * @param {*} children fiber下的children
  */
 function reconcilerChildren(workInProgressFiber, children) {
-  //当前 子fiber  的前一个 fiber 对于第一个child而言他是null 而第二个子fiber 他就是刚才child
+  //指针1: 移动用来构建 child ---> sibling ---> sibling 
   let prevSibling = null;
-  //将当前fiber 上一个状态的数据存储
+  //指针2:  当前比对的fiber的上一个状态，我们在下方随着循环逐步的进行移动。
+  //       因为 children 是jsx --->ReactElement 的产物不是一个链表的数据结构，
+  //       所以下方我们需要使用 for 循环遍历虚拟dom-tree 生成新的fiber-linkedList 在此期间我们需要参照之前 fiber 中的对应位置的节点所以需要这个指针2
   let oldFiber = workInProgressFiber.base && workInProgressFiber.base.child;
   for (let i = 0; i < children.length; i++) {
     let child = children[i];
     let newFiber = null;
-
+    // 判断当前fiber 是否为相同类型
     const sameType = child && oldFiber && child.type === oldFiber.type;
+    // 1. 相同类型 只进行更新操作
     if (sameType) {
       newFiber = {
         type: oldFiber.type,
         props: child.props, // 用新的属性
         node: oldFiber.node, // 真实dom节点
-        base: oldFiber, //存储fiber，便于去比较
-        parent: workInProgressFiber,
+        base: oldFiber, //存储fiber，作为下一轮比对的依据
+        parent: workInProgressFiber, //源码中使用的renturn 这个字段保存当前fiber的父fiber
         effectTag: UPDATE,
       };
     }
 
-    // 之前没有现在有了 === 新增
+    // 2. 不相同类型 之前没有/之前不是这个类型  进行替换操作
     if (!sameType && child) {
       newFiber = {
         type: child.type,
@@ -60,25 +62,27 @@ function reconcilerChildren(workInProgressFiber, children) {
         effectTag: PLACEMENT,
       };
     }
-    //之前有现在没有 === 删除
+    //3.之前有现在没有 === 删除
     if (!sameType && oldFiber) {
       oldFiber.effectTag = DELETIONS;
       //将删除的节点放在删除任务队列中
       deletions.push(oldFiber);
     }
+
+    // 指针2 移动，便于下一个节点找到其之前的状态。
     if (oldFiber) {
       oldFiber = oldFiber.sibling;
     }
 
     // 理解链表的数据结构：
-    // 1. 第一个子元素是当前 workInProgressFiber（也就是parent的 child）
+    // 1. 第一个子元素 i==0 是当前 workInProgressFiber（也就是parent的 child） 
     // 2. 其他的孩子顺次排列都是 “大哥”的sibling
     if (i === 0) {
       workInProgressFiber.child = newFiber;
     } else {
       prevSibling.sibling = newFiber;
     }
-    // 下一次循环的 大哥 就是现在 完成的 newFiber
+    // 更新指针，更新下一轮循环的挂载节点
     prevSibling = newFiber;
   }
 }
@@ -86,6 +90,8 @@ function reconcilerChildren(workInProgressFiber, children) {
 // function组件，构建fiber
 function updateFunctionComponent(fiber) {
   wipFiber = fiber; //当前正在工作的 fiber
+  //在真实的fiber对象中hook是个对象数据结构并且 里面的 memoizedState 字段才是用来存储当前useState应该返回的结果的，而且是个链表，这里山寨简化。
+  //这也是为什么React要求hook的调用顺序不能改变（不能在条件语句中使用hook） —— 每次render时都是从一条固定顺序的链表中获取hook对应数据的
   wipFiber.hooks = []; //为当前工作的fiber添加 hook 数组
   hookIndex = 0;
   const { type, props } = fiber;
@@ -97,6 +103,17 @@ function updateClassComponent(fiber) {
   const { type, props } = fiber;
   const cmp = new type(props);
   const children = [cmp.render()];
+  reconcilerChildren(fiber, children);
+}
+
+// 原生标签
+function updateHostComponent(fiber) {
+  if (!fiber.node) {
+    //  在真实的fiber对象中 我们使用stateNode这个字段保存对组件的类实例，DOM节点或与fiber节点关联的其他React元素类型的引用。一般来说，可以认为这个属性用于保存与fiber相关的本地状态。
+    //  另外 functionComponent classComponet Fragment 对应的fiberNode 中的node节点都是null 只有原生标签才的node字段才有值！
+    fiber.node = createNode(fiber);
+  }
+  const { children } = fiber.props;
   reconcilerChildren(fiber, children);
 }
 
@@ -155,14 +172,7 @@ function createNode(vnode) {
   return node;
 }
 
-// 原生标签
-function updateHostComponent(fiber) {
-  if (!fiber.node) {
-    fiber.node = createNode(fiber);
-  }
-  const { children } = fiber.props;
-  reconcilerChildren(fiber, children);
-}
+
 
 // Fragment标签，构建fiber
 function updateFragmentComponent(fiber) {
@@ -182,9 +192,10 @@ function performUnitOfWork(fiber) {
     // 为Fragment
     updateFragmentComponent(fiber);
   }
-
-  //深度优先的规则遍历链表 返回下一个分片任务
-  //下面的 .child / .sibling .parent 都是在上面代码中已经设置好的fiber
+  // 深度优先的规则遍历链表 返回下一个分片任务。
+  //    下面的 .child / .sibling .parent 都是通过调和过程编织好的结构，但是还没有编制完成，我们需要对更下层的节点继续进行调和过程！最终编织成一个完整的fiber-linkedlist
+  //    也就是上面的代码只是对传入进来的 fiber（实际是个react-vnode）的 children 进行了一层的处理，
+  //    形成了 currentFiber.child---》siblingOne --》 siblingOne 的结构但是child/siblingOne/siblingOne的更下层我们还没有处理，所以需要下面深度优先的规则更新nextUnitOfWork的指针。
   if (fiber.child) {
     return fiber.child;
   }
@@ -206,11 +217,11 @@ function workLoop(deadline) {
   // 返回下一个子任务
   // ...等到下一次空闲继续执行上面的流程
   while (nextUnitOfWork && deadline.timeRemaining() > 1) {
-    //有下个子任务，并且当前帧还没有结束
+    // 有下个子任务，并且当前帧还没有结束
     // nextUnitOfWork
+    console.log("=====  nextUnitOfWork  =====", nextUnitOfWork);
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
   }
-
   // 没有子任务了，进行提交更新
   if (!nextUnitOfWork && wipRoot) {
     commitRoot();
@@ -223,7 +234,9 @@ function workLoop(deadline) {
 requestIdleCallback(workLoop);
 
 function commitRoot() {
+  //之所以这里需要单独清空 被删除节点的数组 是因为我们在进行调和过程中 如果断言当前effectTag = DELETIONS;时并没有创建新的fibernode 加入到fiber - tree中
   deletions.forEach(commitWorker);
+  //
   commitWorker(wipRoot.child);
   console.log("== 将最终生成的 fiber 进行处理 ==", wipRoot);
   currentRoot = wipRoot;
@@ -234,7 +247,6 @@ function commitWorker(fiber) {
   if (!fiber) {
     return;
   }
-
   let parentNodeFiber = fiber.parent;
   while (!parentNodeFiber.node) {
     parentNodeFiber = parentNodeFiber.parent;
@@ -255,7 +267,7 @@ function commitWorker(fiber) {
   commitWorker(fiber.sibling);
 }
 
-//删除
+//删除节点
 function commitDeletions(fiber, parentNode) {
   if (fiber.node) {
     //如果有父节点 node
@@ -267,34 +279,32 @@ function commitDeletions(fiber, parentNode) {
 }
 
 export function useState(init) {
-  // 新旧状态  第二次进来不能使用init了 base 中存储的是上一次 fiber 的具体状态
+  // 新旧状态 第二次进来不能使用init了 base 中存储的是上一次 fiber 的具体状态
+  // 在真正的 fiber数据结构中 hook 被存储在了 memorizedState 中 而且并不是一个数组结构 而是一个链表结构
   const oldHook = wipFiber.base && wipFiber.base.hooks[hookIndex];
-  console.log("== hookIndex ===", hookIndex);
   // 当前的hook 每次调用都是会初始化
   const hook = {
     state: oldHook ? oldHook.state : init,
-    queue: [], //setstate执行的次数，可以说成保存传递过来的数据，也是 高密度触发 setState 最终只是执行最后一次的关键 
+    queue: [], //setstate执行的次数，可以说成保存传递过来的数据，也是高密度触发 setState 最终只是执行最后一次的关键 
   };
-
-  //拿到state
+  //拿到所有的setstate 统一执行并且获取到最终的state
   const actions = oldHook ? oldHook.queue : [];
-
-  actions.forEach((action) => {
+  actions.forEach((newstate) => {
     // 将当前hook的state进行更新，实际最终获取的是最后一次的值  搜索jsx中的"suprise mother F!!!"
-    hook.state = action;
+    hook.state = newstate;
   });
   //拿到 setState 这里的action 只是传递过来的数值
   //这里有问题  setState 重复执行了多次 我怀疑在数据绑定的时候
   /**
    * @param {*} action 传递过来的值
-   * 
    * // 调用 setState 发生了什么
-   *  1. =》 当前fiber中的 hook.queue 进行更新下一轮渲染需要的初始值
-   *  2. ==》更新定义下一次的单元任务 nextUnitOfWork 触发 requestIdleCallback(workLoop); 此时触发了调和过程
+   *  1. =》 将多次setstate的操作的值放入到当前fiber中的 hook.queue
+   *  2. ==》 更新定义下一次的单元任务 nextUnitOfWork 触发 requestIdleCallback(workLoop); 此时触发了调和过程
    *  3. ===》 在下一轮构建fiber的过程中 useState重新被执行  -->   上面actions.forEach(()=>{获取到当轮 调和过程最终的state}) （短时间内触发的state 只执行了最后一次 ）
    */
   const setState = (action) => {
     hook.queue.push(action);
+    //注意这里使用的 currentRoot 所以我们是从顶层重新diff整个fiber树
     wipRoot = {
       node: currentRoot.node,
       props: currentRoot.props,
