@@ -17,7 +17,8 @@ function createNode(vnode) {
       updateClassComponent(vnode)
       : updateFunctionComponent(vnode);
   } else if (type === "TEXT") {
-    node = document.createTextNode("");
+
+    node = document.createTextNode(""); //在 updateNode 添加nodevalue
   } else if (type) {
     //html
     node = document.createElement(type);
@@ -48,7 +49,7 @@ function reconcilerChildren(children, node) {
         render(child[j], node);
       }
     } else {
-      //单个孩子的时候是个objec
+      // 如果不是一个jsx的表达式 生成的应该是一个 [{},{},...]
       render(children[i], node);
     }
   }
