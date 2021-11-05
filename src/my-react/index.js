@@ -1,5 +1,5 @@
-//!vnode 就代表虚拟dom节点
-//! node代表真实dom节点
+//! vnode 就代表虚拟dom节点
+//! node  代表真实dom节点
 
 // 思考为什么有jsx的地方需要引入react 就明白了这个 createElement 的调用时机 实际直接可以在index.js文件中log以下jsx
 // 接收type, props, children， 返回一个vnode
@@ -8,9 +8,9 @@ function createElement(type, props, ...children) {
     delete props.__source;
     delete props.__self;
   }
-
+  // console.log("=== props ===", props);
   return {
-    type: type,
+    type: type,// undefined 时候
     props: {
       ...props,
       //!这里的处理与源码稍有不同，源里的话，只有一个元素，children是对象，多于一个的时候，是数组
